@@ -11,13 +11,17 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/GhandyP/source-grounded-news-summary/internal/cli"
+	"github.com/GhandyP/source-grounded-news-summary/internal/feed"
 	"github.com/GhandyP/source-grounded-news-summary/internal/intelligence"
 	"github.com/GhandyP/source-grounded-news-summary/internal/news"
 	"github.com/GhandyP/source-grounded-news-summary/internal/summarizer"
@@ -369,6 +373,117 @@ func TestEmptyFixtureIsRefusedBeforeTheModel(t *testing.T) {
 	}
 	if stdout != "" {
 		t.Fatalf("an empty batch produced output:\n%s", stdout)
+	}
+}
+
+// TestFeedsFixtureKeepsTheDocumentedFormat pins the shape the README describes, so
+// the example list and the parser cannot drift apart.
+func TestFeedsFixtureKeepsTheDocumentedFormat(t *testing.T) {
+	file, err := os.Open(filepath.Join("fixtures", "feeds.txt"))
+	if err != nil {
+		t.Fatalf("Open(fixtures/feeds.txt) error = %v", err)
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	urls, err := feed.ReadFeedURLs(file)
+	if err != nil {
+		t.Fatalf("ReadFeedURLs() error = %v", err)
+	}
+
+	want := []string{"https://example.com/feed.xml", "https://example.com/atom.xml"}
+	if !reflect.DeepEqual(urls, want) {
+		t.Fatalf("ReadFeedURLs(fixtures/feeds.txt) = %#v, want %#v", urls, want)
+	}
+}
+
+// TestEndToEndFeedToApprovedAlert walks the whole ingestion and delivery phase with
+// no key and no public network: a local feed server, the real fetcher, the real
+// parser, the real contract and the real approval gate, with only the model faked.
+func TestEndToEndFeedToApprovedAlert(t *testing.T) {
+	document, err := os.ReadFile(filepath.Join("internal", "feed", "testdata", "rss.xml"))
+	if err != nil {
+		t.Fatalf("ReadFile(rss.xml) error = %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/rss+xml")
+		_, _ = w.Write(document)
+	}))
+	defer server.Close()
+
+	directory := t.TempDir()
+	feeds := filepath.Join(directory, "feeds.txt")
+	if err := os.WriteFile(feeds, []byte("# local feed\n"+server.URL+"/feed.xml\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(feeds.txt) error = %v", err)
+	}
+	alertPath := filepath.Join(directory, "alert.json")
+
+	deps := cli.Deps{
+		NewSummarizer: func(context.Context, summarizer.Options) (summarizer.Summarizer, error) {
+			return summarizer.FakeFunc(func(_ context.Context, batch news.NewsBatch) (intelligence.IntelligenceSummary, error) {
+				summary := intelligence.IntelligenceSummary{}
+				for _, article := range batch.Articles {
+					confidence := intelligence.ConfidenceHigh
+					if article.PublishedAt == news.PublishedUnknown {
+						confidence = intelligence.ConfidenceMedium
+					}
+					summary.Claims = append(summary.Claims, intelligence.Claim{
+						Text:       article.Title,
+						SourceIDs:  []string{article.SourceID},
+						Evidence:   []intelligence.Quote{{SourceID: article.SourceID, Quote: article.Text}},
+						Confidence: confidence,
+					})
+				}
+				return summary, nil
+			}), nil
+		},
+	}
+
+	run := func(args ...string) (int, string, string) {
+		var stdout, stderr bytes.Buffer
+		code := cli.Run(context.Background(), args, strings.NewReader(""), &stdout, &stderr, deps)
+		return code, stdout.String(), stderr.String()
+	}
+
+	code, stdout, stderr := run("-feeds", feeds, "-alert", alertPath)
+	if code != cli.ExitApprovalRequired {
+		t.Fatalf("unapproved delivery = %d, want %d; stderr: %s", code, cli.ExitApprovalRequired, stderr)
+	}
+	if _, err := os.Stat(alertPath); !os.IsNotExist(err) {
+		t.Fatalf("an unapproved run wrote %s", alertPath)
+	}
+	if !strings.Contains(stdout, `"claims"`) {
+		t.Fatalf("stdout is missing the summary a human would approve: %s", stdout)
+	}
+	digest := regexp.MustCompile(`\b[0-9a-f]{64}\b`).FindString(stderr)
+	if digest == "" {
+		t.Fatalf("stderr = %q, want a digest to approve", stderr)
+	}
+
+	code, _, stderr = run("-feeds", feeds, "-alert", alertPath, "-approve", digest)
+	if code != cli.ExitOK {
+		t.Fatalf("approved delivery = %d, want %d; stderr: %s", code, cli.ExitOK, stderr)
+	}
+	delivered, err := os.ReadFile(alertPath)
+	if err != nil {
+		t.Fatalf("the approved alert was not written: %v", err)
+	}
+	if !strings.Contains(string(delivered), digest) {
+		t.Fatalf("the alert does not carry the approved digest: %s", delivered)
+	}
+
+	code, _, stderr = run("-feeds", feeds, "-alert", alertPath, "-approve", digest)
+	if code != cli.ExitAlreadyDelivered {
+		t.Fatalf("repeated delivery = %d, want %d; stderr: %s", code, cli.ExitAlreadyDelivered, stderr)
+	}
+	afterRepeat, err := os.ReadFile(alertPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(delivered) != string(afterRepeat) {
+		t.Fatal("the refused repeat changed the delivered alert")
 	}
 }
 

@@ -1,0 +1,5 @@
+# One URL per line. Blank lines and lines starting with # are ignored, and a
+# repeated URL is fetched once. This is the example list the README shows; point
+# it at real feeds to use it.
+https://example.com/feed.xml
+https://example.com/atom.xml
