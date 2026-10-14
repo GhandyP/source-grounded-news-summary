@@ -1,21 +1,17 @@
+// Command source-grounded-news-summary summarizes a supplied batch of news
+// articles into claims that are grounded in the batch, and refuses a summary
+// that cites a source nobody supplied or quotes a sentence nobody wrote.
+//
+// The command is a dry run: it prints a summary labelled as unverified
+// intelligence and sends nothing anywhere.
 package main
 
 import (
-	"context"
-	"log"
+	"fmt"
 	"os"
-
-	"github.com/GhandyP/adk-go-enterprise-cookbook/internal/adkhelper"
 )
 
 func main() {
-	if err := adkhelper.Run(
-		context.Background(),
-		os.Args[1:],
-		"case_18_news_and_intelligence_summary",
-		"A text-only starting point for news and intelligence summaries.",
-		"Summarize articles or news text supplied by the user. Deduplicate repeated claims, keep source labels supplied in the text, and distinguish facts from uncertainty; do not browse.",
-	); err != nil {
-		log.Fatal(err)
-	}
+	fmt.Fprintln(os.Stderr, "source-grounded-news-summary: the command line is not wired yet")
+	os.Exit(2)
 }
