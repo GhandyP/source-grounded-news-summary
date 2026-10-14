@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GhandyP/source-grounded-news-summary/internal/feed"
 	"github.com/GhandyP/source-grounded-news-summary/internal/news"
 	"github.com/GhandyP/source-grounded-news-summary/internal/summarizer"
 )
@@ -67,6 +68,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 
 	var inputPath string
+	var feedsPath string
 	var outputFormat string
 	var model string
 	var timeout time.Duration
@@ -78,17 +80,19 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		fmt.Fprintln(stderr, "Summarize a batch of articles without letting the summary invent a source.")
 		flags.PrintDefaults()
 	}
-	flags.StringVar(&inputPath, "input", "-", "news batch JSON path, or - for standard input")
+	flags.StringVar(&inputPath, "input", "-", "news batch JSON path, or - for standard input; ignored when -feeds is used without it")
+	flags.StringVar(&feedsPath, "feeds", "", "path to a file listing feed urls, one per line")
 	flags.StringVar(&outputFormat, "out", "json", "output format: json or text")
 	flags.StringVar(&model, "model", "", "Gemini model name")
-	flags.DurationVar(&timeout, "timeout", 60*time.Second, "summarization timeout; zero or negative disables the deadline")
+	flags.DurationVar(&timeout, "timeout", 60*time.Second, "fetch and summarization timeout; zero or negative disables the deadline")
 	flags.BoolVar(&verbose, "verbose", false, "write diagnostics to standard error")
 
 	articles := 0
 	inputBytes := 0
+	fetched := 0
 	finish := func(code int, reason string) int {
 		if verbose {
-			fmt.Fprintf(stderr, "articles: %d\ninput bytes: %d\nexit reason: %s\n", articles, inputBytes, reason)
+			fmt.Fprintf(stderr, "articles: %d\ninput bytes: %d\nfeeds: %d\nexit reason: %s\n", articles, inputBytes, fetched, reason)
 		}
 		return code
 	}
@@ -112,15 +116,52 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return fail(ExitUsage, fmt.Errorf("unknown output format %q: use json or text", outputFormat))
 	}
 
-	input, err := readInput(inputPath, stdin)
-	if err != nil {
-		return fail(ExitUsage, err)
+	explicit := make(map[string]bool, len(args))
+	flags.Visit(func(set *flag.Flag) { explicit[set.Name] = true })
+
+	runCtx := ctx
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
-	inputBytes = len(input)
 
 	var batch news.NewsBatch
-	if err := json.Unmarshal(input, &batch); err != nil {
-		return fail(ExitUsage, fmt.Errorf("input is not a news batch: %v", err))
+
+	// Standard input is read only when the caller asked for it. A run driven by
+	// -feeds alone must never block on a pipe nobody is writing to.
+	if feedsPath == "" || explicit["input"] {
+		input, err := readInput(inputPath, stdin)
+		if err != nil {
+			return fail(ExitUsage, err)
+		}
+		inputBytes = len(input)
+
+		if err := json.Unmarshal(input, &batch); err != nil {
+			return fail(ExitUsage, fmt.Errorf("input is not a news batch: %v", err))
+		}
+	}
+
+	if feedsPath != "" {
+		urls, err := readFeedList(feedsPath)
+		if err != nil {
+			return fail(ExitUsage, err)
+		}
+		if len(urls) == 0 {
+			return fail(ExitUsage, fmt.Errorf("the feed list %s has no urls", feedsPath))
+		}
+		fetched = len(urls)
+
+		// A feed that could not be read is reported by url and never hidden: a
+		// summary that silently covers three of five feeds would overstate how
+		// much of the story it saw.
+		for _, result := range (feed.Client{}).FetchAll(runCtx, urls) {
+			if result.Err != nil {
+				fmt.Fprintf(stderr, "feed %s: %v\n", result.URL, result.Err)
+				continue
+			}
+			batch.Articles = append(batch.Articles, result.Articles...)
+		}
 	}
 
 	// An empty batch is a request that cannot be formed, so it fails before a
@@ -129,13 +170,6 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	articles = len(normalized.Articles)
 	if articles == 0 {
 		return fail(ExitUsage, errors.New("input has no article text to summarize"))
-	}
-
-	runCtx := ctx
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
 	}
 
 	engine, err := deps.NewSummarizer(runCtx, summarizer.Options{Model: model})
@@ -181,4 +215,20 @@ func readInput(path string, stdin io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("read %s: %v", path, err)
 	}
 	return data, nil
+}
+
+func readFeedList(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %v", path, err)
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	urls, err := feed.ReadFeedURLs(file)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %v", path, err)
+	}
+	return urls, nil
 }
