@@ -18,10 +18,19 @@ func Validate(summary IntelligenceSummary, batch news.NewsBatch) error {
 		return Problems{{path: "batch", reason: "batch has no usable article text", kind: ErrEmptyBatch}}
 	}
 
+	// Every source id the caller supplied resolves, including the ids recorded as
+	// duplicates: a wire copy printed by three outlets is one article, and a claim
+	// citing the third outlet is citing a source the caller really did supply.
+	// Grounding still happens against the canonical article's text.
 	sources := make(map[string]news.Article, len(normalized.Articles))
 	for _, article := range normalized.Articles {
 		if _, ok := sources[article.SourceID]; !ok {
 			sources[article.SourceID] = article
+		}
+		for _, duplicate := range article.DuplicateSourceIDs {
+			if _, ok := sources[duplicate]; !ok {
+				sources[duplicate] = article
+			}
 		}
 	}
 

@@ -1,0 +1,22 @@
+{
+  "articles": [
+    {
+      "source_id": "wire",
+      "title": "Council approves budget",
+      "published_at": "2026-10-03",
+      "text": "The city council approved the 2027 budget on Friday by a vote of 9 to 2. The plan raises the property levy by 3 percent."
+    },
+    {
+      "source_id": "daily",
+      "title": "Budget passes after long debate",
+      "published_at": "unknown",
+      "text": "The city council approved the 2027 budget on Friday by a vote of 9 to 2 after a debate that ran past midnight."
+    },
+    {
+      "source_id": "column",
+      "title": "What the levy means for owners",
+      "published_at": "2026-10-05",
+      "text": "The property levy rises by 3 percent under the plan the council passed."
+    }
+  ]
+}

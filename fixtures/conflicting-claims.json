@@ -1,0 +1,16 @@
+{
+  "articles": [
+    {
+      "source_id": "ministry",
+      "title": "Ministry statement",
+      "published_at": "2026-09-28",
+      "text": "The ministry said the bridge reopened on Monday and that traffic is moving normally."
+    },
+    {
+      "source_id": "local",
+      "title": "Drivers still diverted",
+      "published_at": "2026-09-30",
+      "text": "Drivers are still being diverted around the bridge, which local crews say remains closed to heavy vehicles."
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "articles": [
+    {
+      "source_id": "wire",
+      "title": "Ferry service resumes",
+      "published_at": "2026-09-20",
+      "text": "The ferry service resumed on Saturday morning after two weeks of repairs to the northern pier."
+    },
+    {
+      "source_id": "syndicated",
+      "title": "Ferry service resumes",
+      "published_at": "2026-09-20",
+      "text": "The ferry service resumed on Saturday morning after two weeks of repairs to the northern pier."
+    },
+    {
+      "source_id": "regional",
+      "title": "Repairs finished early",
+      "published_at": "2026-09-21",
+      "text": "Crews finished the pier repairs two days ahead of schedule, the harbour office said."
+    }
+  ]
+}

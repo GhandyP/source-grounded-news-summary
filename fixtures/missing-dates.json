@@ -1,0 +1,16 @@
+{
+  "articles": [
+    {
+      "source_id": "undated-a",
+      "title": "Talks continue",
+      "published_at": "unknown",
+      "text": "Negotiators met again in the capital and said the talks would continue next week."
+    },
+    {
+      "source_id": "undated-b",
+      "title": "No deadline set",
+      "published_at": "unknown",
+      "text": "No deadline has been set for the negotiations, a spokesperson said."
+    }
+  ]
+}

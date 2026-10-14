@@ -329,6 +329,22 @@ func TestValidateReportsEveryProblemInStableOrder(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsACitationOfADuplicateSourceID(t *testing.T) {
+	// The batch carries byte-identical text under "wire" and "syndicated". A model
+	// that cites the syndicated copy is citing a source the caller supplied, so the
+	// claim is accepted and grounded against the canonical article's text.
+	summary := IntelligenceSummary{Claims: []Claim{{
+		Text:       "The council approved the budget.",
+		SourceIDs:  []string{"syndicated"},
+		Evidence:   []Quote{{SourceID: "syndicated", Quote: "The council approved the budget on Friday."}},
+		Confidence: ConfidenceHigh,
+	}}}
+
+	if err := Validate(summary, batchWithDuplicate()); err != nil {
+		t.Fatalf("Validate() = %v, want the syndicated copy accepted as the canonical article", err)
+	}
+}
+
 func TestValidateRejectsAnEmptyBatch(t *testing.T) {
 	empty := news.NewsBatch{Articles: []news.Article{
 		{SourceID: "blank", Title: "Blank", PublishedAt: "2026-10-03", Text: " \n\t "},
