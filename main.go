@@ -1,17 +1,19 @@
-// Command source-grounded-news-summary summarizes a supplied batch of news
-// articles into claims that are grounded in the batch, and refuses a summary
-// that cites a source nobody supplied or quotes a sentence nobody wrote.
+// Command source-grounded-news-summary summarizes a batch of news articles into
+// claims that are anchored in those articles.
 //
-// The command is a dry run: it prints a summary labelled as unverified
-// intelligence and sends nothing anywhere.
+// Every quotation must exist in the article it cites, every cited source must be
+// one the caller supplied, and a claim that rests on an undated article cannot be
+// published as high confidence. The command is a dry run: it prints a summary
+// labelled as unverified intelligence and sends nothing anywhere.
 package main
 
 import (
-	"fmt"
+	"context"
 	"os"
+
+	"github.com/GhandyP/source-grounded-news-summary/internal/cli"
 )
 
 func main() {
-	fmt.Fprintln(os.Stderr, "source-grounded-news-summary: the command line is not wired yet")
-	os.Exit(2)
+	os.Exit(cli.Run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr, cli.Deps{}))
 }
