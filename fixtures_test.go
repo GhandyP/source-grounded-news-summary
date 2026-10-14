@@ -372,19 +372,25 @@ func TestEmptyFixtureIsRefusedBeforeTheModel(t *testing.T) {
 	}
 }
 
-// TestModuleHasNoOutboundSurface is the machine-checkable half of the dry-run
-// promise: nothing in this module can send, publish or execute anything. The
-// model call is the only thing that leaves the process, and it lives in one
-// package that imports the ADK client, not an HTTP or SMTP surface of its own.
-func TestModuleHasNoOutboundSurface(t *testing.T) {
-	forbidden := map[string]string{
-		"net/http": "an HTTP client",
+// TestOutboundSurfaceIsConfinedToFeed is the machine-checkable half of the dry-run
+// promise. The project now has exactly one package that reaches the network,
+// `internal/feed`, which issues GET requests and nothing else; every other
+// package must stay offline, and no package anywhere may send mail, speak RPC or
+// launch a process.
+func TestOutboundSurfaceIsConfinedToFeed(t *testing.T) {
+	// No package may ever do these, including internal/feed.
+	forbiddenEverywhere := map[string]string{
 		"net/smtp": "an SMTP client",
 		"net/rpc":  "an RPC client",
 		"os/exec":  "a process launcher",
 	}
+	// Only the feed fetcher may reach the network.
+	forbiddenOutsideFeed := map[string]string{
+		"net/http": "an HTTP client",
+	}
 
 	scanned := 0
+	feedFiles := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -405,10 +411,22 @@ func TestModuleHasNoOutboundSurface(t *testing.T) {
 		}
 		scanned++
 
+		inFeed := strings.HasPrefix(filepath.ToSlash(path), "internal/feed/")
+		// A test file is not part of the shipped surface: a test may host a local
+		// server with httptest to exercise the fetcher, but no package the binary
+		// links may import an HTTP client of its own.
+		isTest := strings.HasSuffix(path, "_test.go")
+		if inFeed {
+			feedFiles++
+		}
+
 		for _, imported := range parsed.Imports {
 			name := strings.Trim(imported.Path.Value, `"`)
-			if what, ok := forbidden[name]; ok {
-				t.Errorf("%s imports %s (%s); this project is a dry run and has no outbound surface", path, name, what)
+			if what, ok := forbiddenEverywhere[name]; ok && !isTest {
+				t.Errorf("%s imports %s (%s); this project never sends, executes or speaks RPC", path, name, what)
+			}
+			if what, ok := forbiddenOutsideFeed[name]; ok && !inFeed && !isTest {
+				t.Errorf("%s imports %s (%s); only internal/feed may reach the network", path, name, what)
 			}
 		}
 		return nil
@@ -418,5 +436,8 @@ func TestModuleHasNoOutboundSurface(t *testing.T) {
 	}
 	if scanned < 15 {
 		t.Fatalf("only %d Go files were scanned; the walk is not seeing the module", scanned)
+	}
+	if feedFiles == 0 {
+		t.Fatal("the feed package was not scanned; the allowlist would pass on a module with no fetcher")
 	}
 }
