@@ -53,11 +53,11 @@ gofmt -l .
 All five exit 0, `gofmt -l .` prints nothing, and the test run prints:
 
 ```text
-ok  	github.com/GhandyP/source-grounded-news-summary	1.177s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/cli	1.147s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/intelligence	1.088s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/news	1.022s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/summarizer	1.043s
+ok  	github.com/GhandyP/source-grounded-news-summary	1.115s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/cli	1.076s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/intelligence	1.059s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/news	1.030s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/summarizer	1.042s
 ```
 
 Exit codes were checked through the compiled binary rather than `go run`, which reports a child's
