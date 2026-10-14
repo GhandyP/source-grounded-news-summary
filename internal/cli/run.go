@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/GhandyP/source-grounded-news-summary/internal/alert"
 	"github.com/GhandyP/source-grounded-news-summary/internal/feed"
 	"github.com/GhandyP/source-grounded-news-summary/internal/news"
 	"github.com/GhandyP/source-grounded-news-summary/internal/summarizer"
@@ -29,6 +30,10 @@ const (
 	ExitUsage = 2
 	// ExitContractViolation means the summary violated the contract.
 	ExitContractViolation = 3
+	// ExitApprovalRequired means the alert candidate is ready and nobody approved it yet.
+	ExitApprovalRequired = 4
+	// ExitAlreadyDelivered means that exact alert was written before.
+	ExitAlreadyDelivered = 5
 )
 
 // Banner labels every produced summary. It is written to standard error, so a
@@ -69,6 +74,8 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	var inputPath string
 	var feedsPath string
+	var alertPath string
+	var approval string
 	var outputFormat string
 	var model string
 	var timeout time.Duration
@@ -82,6 +89,8 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	flags.StringVar(&inputPath, "input", "-", "news batch JSON path, or - for standard input; ignored when -feeds is used without it")
 	flags.StringVar(&feedsPath, "feeds", "", "path to a file listing feed urls, one per line")
+	flags.StringVar(&alertPath, "alert", "", "write the checked summary to this path once its digest is approved")
+	flags.StringVar(&approval, "approve", "", "the digest a previous run printed; approves exactly that alert")
 	flags.StringVar(&outputFormat, "out", "json", "output format: json or text")
 	flags.StringVar(&model, "model", "", "Gemini model name")
 	flags.DurationVar(&timeout, "timeout", 60*time.Second, "fetch and summarization timeout; zero or negative disables the deadline")
@@ -114,6 +123,9 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case "json", "text":
 	default:
 		return fail(ExitUsage, fmt.Errorf("unknown output format %q: use json or text", outputFormat))
+	}
+	if strings.TrimSpace(approval) != "" && strings.TrimSpace(alertPath) == "" {
+		return fail(ExitUsage, errors.New("-approve was given without -alert, so there is nothing to approve"))
 	}
 
 	explicit := make(map[string]bool, len(args))
@@ -196,6 +208,31 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	fmt.Fprintln(stderr, Banner)
 	if err := render(stdout, outputFormat, checked); err != nil {
 		return fail(ExitFailure, err)
+	}
+
+	// An alert is the one artefact meant to leave the machine, so it is written
+	// only when the human approves the digest of exactly this content. Without an
+	// approval the run prints the digest, writes nothing, and says so with its own
+	// exit code instead of pretending the delivery happened.
+	if alertPath != "" {
+		candidate, err := alert.New(checked)
+		if err != nil {
+			return fail(ExitUsage, err)
+		}
+
+		if strings.TrimSpace(approval) == "" {
+			fmt.Fprintf(stderr, "alert approval required for %s\napprove exactly this summary with -approve %s\n",
+				alertPath, candidate.Digest)
+			return finish(ExitApprovalRequired, "alert awaiting approval")
+		}
+
+		if err := alert.Write(alertPath, candidate, approval); err != nil {
+			if errors.Is(err, alert.ErrAlreadyDelivered) {
+				return fail(ExitAlreadyDelivered, err)
+			}
+			return fail(ExitUsage, err)
+		}
+		fmt.Fprintf(stderr, "alert written to %s\n", alertPath)
 	}
 
 	return finish(ExitOK, "summary produced")
