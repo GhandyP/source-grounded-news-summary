@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Undated feed</title>
+    <item>
+      <title>Talks continue</title>
+      <guid isPermaLink="false">undated-talks</guid>
+      <description>Negotiators met again in the capital and said the talks would continue.</description>
+    </item>
+    <item>
+      <title>No deadline set</title>
+      <guid isPermaLink="false">undated-deadline</guid>
+      <pubDate>not a date at all</pubDate>
+      <description>No deadline has been set for the negotiations.</description>
+    </item>
+  </channel>
+</rss>

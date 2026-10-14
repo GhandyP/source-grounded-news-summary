@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Example Atom</title>
+  <entry>
+    <title>Bridge reopens</title>
+    <id>tag:example.com,2026:bridge</id>
+    <link href="https://example.com/atom/bridge"/>
+    <updated>2026-09-28T11:00:00Z</updated>
+    <summary type="html">The ministry said the bridge reopened on Monday.</summary>
+  </entry>
+  <entry>
+    <title>Talks continue</title>
+    <id>tag:example.com,2026:talks</id>
+    <link href="https://example.com/atom/talks"/>
+    <content type="html">&lt;p&gt;Negotiators met again in the capital.&lt;/p&gt;</content>
+  </entry>
+</feed>
