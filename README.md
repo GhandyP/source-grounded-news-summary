@@ -1,8 +1,8 @@
 # source-grounded-news-summary
 
-A Go CLI that turns a supplied batch of news articles into claims, themes, conflicts and gaps — and
-refuses a summary that cites a source nobody supplied, quotes a sentence nobody wrote, or hides that
-a claim rests on an undated article.
+A Go CLI that turns news articles — supplied as a batch, read from RSS and Atom feeds, or both — into
+claims, themes, conflicts and gaps, and refuses a summary that cites a source nobody supplied, quotes
+a sentence nobody wrote, or hides that a claim rests on an undated article.
 
 [![CI](https://github.com/GhandyP/source-grounded-news-summary/actions/workflows/ci.yml/badge.svg)](https://github.com/GhandyP/source-grounded-news-summary/actions/workflows/ci.yml)
 
@@ -14,10 +14,11 @@ sentence nobody wrote, attach a statement to an undated article and publish it a
 and turn one wire story printed by three outlets into three independent confirmations.
 
 This project adds the missing half: the contract is enforced in pure Go, offline, before a reader ever
-sees the summary. Two ADK agents do the reading — a claim extractor that must quote what it cited, and
-a synthesizer that groups those claims into themes, conflicts and gaps — and everything they return
-passes through one policy function. Nothing in the module can send, publish or alert: the command is a
-dry run that labels its own output as unverified intelligence.
+sees the summary. Two agents do the reading — a claim extractor that must quote what it cited, and a
+synthesizer that groups those claims into themes, conflicts and gaps — and everything they return
+passes through one policy function. Nothing is sent anywhere: the command prints a labelled summary,
+and the only file it ever writes is an alert that a human approved by digest. The model is a seam as
+well: Gemini by default, any other provider ADK ships, or your own `model.LLM`.
 
 ## Quickstart
 
@@ -33,9 +34,43 @@ cat fixtures/repeated-claim.json | go run . -input -
 go run . -input fixtures/repeated-claim.json -out text
 ```
 
-The first two commands need no key and no network. The three summarizing commands construct the live
-Gemini summarizer (`GOOGLE_API_KEY`), and the first build downloads the ADK and Gemini modules if they
-are not already in the module cache.
+The first two commands need no key and no network. The summarizing commands construct a model, so they
+need that provider's credentials:
+
+| Provider | `-provider` | Credentials | Default model |
+| --- | --- | --- | --- |
+| Gemini | `gemini` (default) | `GOOGLE_API_KEY`, or `GOOGLE_GENAI_USE_VERTEXAI=true` for Vertex AI credentials | `gemini-flash-latest` |
+| OpenAI-compatible | `openai` | `OPENAI_API_KEY`, optionally `OPENAI_BASE_URL` | none: pass `-model` |
+| Apigee | `apigee` | `APIGEE_PROXY_URL` | none: pass `-model` |
+
+`ADK_MODEL_PROVIDER` and `ADK_MODEL` set the same two things by environment, and `-provider`/`-model`
+win over them.
+
+### Reading feeds
+
+```bash
+printf 'https://example.com/feed.xml\n' > feeds.txt
+go run . -feeds feeds.txt
+go run . -input fixtures/repeated-claim.json -feeds feeds.txt   # merge both
+```
+
+The list is one URL per line; blank lines and `#` comments are ignored and duplicates collapse. A
+ready-made example lives in `fixtures/feeds.txt`, and a test keeps that file's format honest. Each
+feed is fetched with one GET, a 30 second timeout, a 5 MiB cap, and a user agent naming the project. A
+feed that cannot be read is reported by URL on standard error and never silently skipped; if no feed
+yields an article the run fails before a model exists.
+
+### Delivering an alert
+
+```bash
+go run . -feeds feeds.txt -alert out/alert.json          # prints a digest, writes nothing, exits 4
+go run . -feeds feeds.txt -alert out/alert.json -approve <digest>
+```
+
+The alert file is the one artefact meant to leave the machine, so it is gated: the first command prints
+the digest of exactly what would be written and exits 4; the second writes it atomically and records
+the digest in `out/alert.json.approved`, so approving the same alert twice is refused (exit 5) instead
+of sending it twice. An alert can only be built from a summary that already passed the contract.
 
 ### Verification recorded for this checkout
 
@@ -53,11 +88,13 @@ gofmt -l .
 All five exit 0, `gofmt -l .` prints nothing, and the test run prints:
 
 ```text
-ok  	github.com/GhandyP/source-grounded-news-summary	1.115s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/cli	1.076s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/intelligence	1.059s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/news	1.030s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/summarizer	1.042s
+ok  	github.com/GhandyP/source-grounded-news-summary	1.749s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/alert	1.027s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/cli	1.073s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/feed	2.019s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/intelligence	1.024s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/news	1.011s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/summarizer	1.030s
 ```
 
 Exit codes were checked through the compiled binary rather than `go run`, which reports a child's
@@ -72,10 +109,12 @@ non-zero status as 1:
 | `./source-grounded-news-summary -input fixtures/absent.json` | 2 | `read fixtures/absent.json: open fixtures/absent.json: no such file or directory` |
 | `env -u GOOGLE_API_KEY ./source-grounded-news-summary -input fixtures/repeated-claim.json` | 1 | `the model is unavailable: GOOGLE_API_KEY is not set` |
 
-**Not verified:** no live model run happened, because no `GOOGLE_API_KEY` was available. Exit 0 through
-the real binary and the `//go:build integration` test were therefore never executed, and this README
-claims nothing about the summary a live model would produce. CI runs exactly the offline commands above
-on every push.
+**Not verified:** no live model run happened, because no provider credential was available in the environment
+this was recorded in. Exit 0 through the real binary and the `//go:build integration` test were therefore
+never executed, and this README claims nothing about the summary a live model would produce. Exit 4 and
+exit 5 are covered by tests that drive the command with a fake summarizer; they were **not** exercised as
+processes either, because reaching them needs a checked summary and that needs a model. CI runs exactly
+the offline commands above on every push.
 
 ## What the Go layer refuses to publish
 
@@ -116,14 +155,30 @@ Output — an `IntelligenceSummary`:
 }
 ```
 
+## Flags
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `-input` | `-` | News batch JSON path, or `-` for standard input. Read only when given explicitly, so a `-feeds` run never waits on a pipe nobody is writing to. |
+| `-feeds` | none | Path to a file listing feed URLs, one per line. |
+| `-out` | `json` | `json` or `text`. |
+| `-provider` | `gemini` | `apigee`, `gemini` or `openai`. Beats `ADK_MODEL_PROVIDER`. |
+| `-model` | provider default | Model name. Beats `ADK_MODEL`. |
+| `-alert` | none | Write the checked summary to this path once its digest is approved. |
+| `-approve` | none | The digest a previous run printed; approves exactly that content. |
+| `-timeout` | `60s` | Bounds feed fetching and summarization together; zero or negative disables the deadline. |
+| `-verbose` | `false` | Writes article count, feed count and the exit reason to standard error. |
+
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
-| 0 | A contract-checked summary was produced. |
+| 0 | A contract-checked summary was produced, and the alert was written if one was approved. |
 | 1 | The model, the network or the output stream failed. |
-| 2 | The request could not be formed: unknown flag, unknown `-out`, missing file, invalid JSON, or a batch with no usable article text. |
+| 2 | The request could not be formed: unknown flag, unknown `-out`, missing file, invalid JSON, a batch with no usable article text, an unusable feed list, an approval that does not match, or `-approve` without `-alert`. |
 | 3 | The summary violated the contract. Nothing is printed to standard output. |
+| 4 | The alert candidate is ready and unapproved: the digest was printed and nothing was written. |
+| 5 | That exact alert was delivered before. |
 
 Standard error always carries `unverified intelligence - human review required before any external
 action` when a summary is produced, so a machine consuming JSON on standard output still sees the
@@ -131,9 +186,12 @@ label.
 
 ## What this project does not do
 
-- No ingestion: it reads a batch it is given. There is no RSS reader, no fetcher, no scheduler.
-- No alerting: there is no notifier, sender or publisher, and a test fails if the module ever imports
-  an HTTP client, an SMTP client, an RPC client or a process launcher.
+- No scheduler and no daemon: you run it, it reads the feeds you listed, and it exits.
+- No destination beyond a file you name, and no unapproved alert. It never sends mail, never posts,
+  never calls a webhook. The fetch surface is GET-only and lives in one package; a test fails the suite
+  if any other linked package imports an HTTP, SMTP, RPC or process-launching client.
+- No article extraction: the feed's own body is used, with markup stripped. It does not fetch the linked
+  page or defeat a paywall, so a snippet is summarized as the snippet it is.
 - Grounding is textual, not semantic. A quotation that genuinely appears in the article is accepted
   even when the model attached it to the wrong claim; entailment is not checked.
 - Duplicate detection is exact after normalization. Two wire stories with a changed byline are not
@@ -141,6 +199,10 @@ label.
 - Conflict detection is model-reported and only structurally validated: the Go layer proves a conflict
   cites two real sources with two distinct positions, not that they truly disagree.
 - The confidence rule is a floor, not a calibration.
+- A feed larger than the cap is rejected rather than truncated, so an oversized feed produces no summary
+  instead of a summary of half an article.
+- The alert digest binds to the exact JSON of a summary: reformatting or re-running may produce a new
+  digest, and that is the point, because the approval has to be about the content being written.
 
 ## Provenance
 
