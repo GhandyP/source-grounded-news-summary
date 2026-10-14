@@ -10,34 +10,11 @@ import (
 	"github.com/GhandyP/source-grounded-news-summary/internal/news"
 )
 
-func TestResolveModel(t *testing.T) {
-	tests := []struct {
-		name     string
-		override string
-		env      string
-		want     string
-	}{
-		{name: "default", want: defaultModel},
-		{name: "environment", env: "gemini-from-env", want: "gemini-from-env"},
-		{name: "flag wins", override: "gemini-from-flag", env: "gemini-from-env", want: "gemini-from-flag"},
-		{name: "blank flag falls through", override: "   ", env: "gemini-from-env", want: "gemini-from-env"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Setenv("ADK_MODEL", test.env)
-
-			if got := resolveModel(test.override); got != test.want {
-				t.Fatalf("resolveModel(%q) = %q, want %q", test.override, got, test.want)
-			}
-		})
-	}
-}
-
-func TestNewGeminiWithoutAKeyIsUnavailable(t *testing.T) {
+func TestNewWithoutCredentialsIsUnavailable(t *testing.T) {
 	t.Setenv("GOOGLE_API_KEY", "  ")
+	t.Setenv("GOOGLE_GENAI_USE_VERTEXAI", "")
 
-	_, err := NewGemini(context.Background(), Options{})
+	_, err := New(context.Background(), Options{})
 
 	if !errors.Is(err, ErrModelUnavailable) {
 		t.Fatalf("errors.Is(%v, ErrModelUnavailable) = false, want true", err)

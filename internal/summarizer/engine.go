@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"sync/atomic"
 
@@ -13,15 +12,12 @@ import (
 	"github.com/GhandyP/source-grounded-news-summary/internal/news"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
-	"google.golang.org/adk/v2/model/gemini"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
 const (
-	// defaultModel is the model the project is verified against.
-	defaultModel = "gemini-flash-latest"
 	// appName names the in-memory session a batch is summarized in.
 	appName = "source-grounded-news-summary"
 	// userID is fixed because a batch is one bounded run, not a conversation.
@@ -44,36 +40,50 @@ const synthesizerInstruction = `Write the intelligence summary for the supplied 
 - Every source_id must be one of the batch's source ids. Never invent one, and never invent a title or a date.
 - Do not produce a citations list. The caller derives it from the batch itself.`
 
-// Gemini summarizes a batch with two schema-constrained ADK agents that share one
+// ADK summarizes a batch with two schema-constrained ADK agents that share one
 // bounded session: an extractor that quotes, then a synthesizer that groups.
-type Gemini struct {
+//
+// The provider is a seam, not an assumption: the pipeline, the schemas and the
+// contract are the same whatever model.LLM is plugged in.
+type ADK struct {
 	extractor   *runner.Runner
 	synthesizer *runner.Runner
 }
 
 var (
-	_ Summarizer = (*Gemini)(nil)
+	_ Summarizer = (*ADK)(nil)
 
 	sessionSequence uint64
 )
 
-// NewGemini creates the two-stage workflow. The order is decided in Go, not by
-// model transfer, so the pipeline cannot silently change shape at runtime.
-func NewGemini(ctx context.Context, opts Options) (*Gemini, error) {
-	apiKey := strings.TrimSpace(os.Getenv("GOOGLE_API_KEY"))
-	if apiKey == "" {
-		return nil, fmt.Errorf("%w: GOOGLE_API_KEY is not set", ErrModelUnavailable)
+// New creates the two-stage workflow for the selected provider. The order is
+// decided in Go, not by model transfer, so the pipeline cannot silently change
+// shape at runtime, and the same shape is built for every provider.
+func New(ctx context.Context, opts Options) (*ADK, error) {
+	provider, err := ResolveProvider(opts.Provider)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrModelUnavailable, err)
 	}
 
-	model, err := gemini.NewModel(ctx, resolveModel(opts.Model), &genai.ClientConfig{APIKey: apiKey})
+	modelName, err := resolveModelName(provider, opts.Model)
 	if err != nil {
-		return nil, fmt.Errorf("%w: create Gemini model: %v", ErrModelUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrModelUnavailable, err)
+	}
+
+	factory := opts.NewModel
+	if factory == nil {
+		factory = BuildModel
+	}
+
+	llm, err := factory(ctx, provider, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s model %q: %w", ErrModelUnavailable, provider, modelName, err)
 	}
 
 	extractor, err := llmagent.New(llmagent.Config{
 		Name:         "claim_extractor",
 		Description:  "Extracts the claims a batch of articles supports, each with a verbatim quotation.",
-		Model:        model,
+		Model:        llm,
 		Instruction:  extractorInstruction,
 		OutputSchema: ExtractionSchema(),
 		OutputKey:    "extracted_claims",
@@ -85,7 +95,7 @@ func NewGemini(ctx context.Context, opts Options) (*Gemini, error) {
 	synthesizer, err := llmagent.New(llmagent.Config{
 		Name:         "intelligence_synthesizer",
 		Description:  "Synthesizes themes, conflicts and gaps from claims that were already extracted and quoted.",
-		Model:        model,
+		Model:        llm,
 		Instruction:  synthesizerInstruction,
 		OutputSchema: SummarySchema(),
 		OutputKey:    "intelligence_summary",
@@ -118,13 +128,13 @@ func NewGemini(ctx context.Context, opts Options) (*Gemini, error) {
 		return nil, fmt.Errorf("%w: create synthesis runner: %v", ErrModelUnavailable, err)
 	}
 
-	return &Gemini{extractor: extractorRunner, synthesizer: synthesizerRunner}, nil
+	return &ADK{extractor: extractorRunner, synthesizer: synthesizerRunner}, nil
 }
 
 // Summarize runs both stages and submits the result to the contract. The batch
 // handed to the model is the normalized batch, which is also the text the
 // contract checks quotations against.
-func (g *Gemini) Summarize(ctx context.Context, batch news.NewsBatch) (intelligence.IntelligenceSummary, error) {
+func (g *ADK) Summarize(ctx context.Context, batch news.NewsBatch) (intelligence.IntelligenceSummary, error) {
 	if g == nil || g.extractor == nil || g.synthesizer == nil {
 		return intelligence.IntelligenceSummary{}, fmt.Errorf("%w: the summarizer is not initialized", ErrModelUnavailable)
 	}
@@ -226,18 +236,6 @@ func decodeInto(output any, target any) error {
 		return fmt.Errorf("%w: decode the model output: %v", ErrModelOutput, err)
 	}
 	return nil
-}
-
-// resolveModel chooses a non-blank explicit model, then ADK_MODEL, then the
-// documented default.
-func resolveModel(override string) string {
-	if model := strings.TrimSpace(override); model != "" {
-		return model
-	}
-	if model := strings.TrimSpace(os.Getenv("ADK_MODEL")); model != "" {
-		return model
-	}
-	return defaultModel
 }
 
 // newSessionID gives every batch its own session, so two runs never share state.

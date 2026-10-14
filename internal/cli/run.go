@@ -64,7 +64,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		// The adapter keeps a failed construction from becoming a non-nil
 		// interface holding a nil pointer.
 		deps.NewSummarizer = func(ctx context.Context, opts summarizer.Options) (summarizer.Summarizer, error) {
-			engine, err := summarizer.NewGemini(ctx, opts)
+			engine, err := summarizer.New(ctx, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -77,6 +77,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	var alertPath string
 	var approval string
 	var outputFormat string
+	var provider string
 	var model string
 	var timeout time.Duration
 	var verbose bool
@@ -92,7 +93,8 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	flags.StringVar(&alertPath, "alert", "", "write the checked summary to this path once its digest is approved")
 	flags.StringVar(&approval, "approve", "", "the digest a previous run printed; approves exactly that alert")
 	flags.StringVar(&outputFormat, "out", "json", "output format: json or text")
-	flags.StringVar(&model, "model", "", "Gemini model name")
+	flags.StringVar(&provider, "provider", "", "model provider: apigee, gemini or openai (default gemini)")
+	flags.StringVar(&model, "model", "", "model name for the selected provider")
 	flags.DurationVar(&timeout, "timeout", 60*time.Second, "fetch and summarization timeout; zero or negative disables the deadline")
 	flags.BoolVar(&verbose, "verbose", false, "write diagnostics to standard error")
 
@@ -184,7 +186,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return fail(ExitUsage, errors.New("input has no article text to summarize"))
 	}
 
-	engine, err := deps.NewSummarizer(runCtx, summarizer.Options{Model: model})
+	engine, err := deps.NewSummarizer(runCtx, summarizer.Options{Provider: provider, Model: model})
 	if err != nil {
 		return fail(ExitFailure, err)
 	}

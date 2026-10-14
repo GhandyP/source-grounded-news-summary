@@ -23,9 +23,16 @@ type Summarizer interface {
 
 // Options configures a Summarizer implementation.
 type Options struct {
+	// Provider selects the model provider: apigee, gemini or openai. Empty means
+	// the ADK_MODEL_PROVIDER environment variable, and then gemini.
+	Provider string
 	// Model overrides the model name. Empty means the ADK_MODEL environment
-	// variable, and then the documented default.
+	// variable, and then the provider's documented default when it has one.
 	Model string
+	// NewModel overrides how the model is built. A caller may plug in any ADK
+	// model.LLM this way; leaving it empty uses the provider's own environment
+	// variables.
+	NewModel ModelFactory
 }
 
 var (

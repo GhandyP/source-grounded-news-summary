@@ -22,7 +22,7 @@ func TestGeminiLiveProducesAContractCheckedSummary(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	summarizer, err := NewGemini(ctx, Options{})
+	summarizer, err := New(ctx, Options{})
 	if err != nil {
 		t.Fatalf("NewGemini() error = %v", err)
 	}
