@@ -1,0 +1,10 @@
+# Local Pi runtime state (not part of the project)
+.atl/
+
+# Build output
+/dist/
+*.test
+
+# Binaries copied from the cookbook build
+/18-news-and-intelligence-summary
+/source-grounded-news-summary
