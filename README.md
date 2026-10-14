@@ -70,7 +70,9 @@ go run . -feeds feeds.txt -alert out/alert.json -approve <digest>
 The alert file is the one artefact meant to leave the machine, so it is gated: the first command prints
 the digest of exactly what would be written and exits 4; the second writes it atomically and records
 the digest in `out/alert.json.approved`, so approving the same alert twice is refused (exit 5) instead
-of sending it twice. An alert can only be built from a summary that already passed the contract.
+of sending it twice. The destination file is compared as well, so deleting the ledger does not reopen
+the gate, and `Write` re-checks that the summary carries citations rather than trusting whatever built
+the candidate: an alert can only be built from a summary that already passed the contract.
 
 ### Verification recorded for this checkout
 
@@ -88,13 +90,13 @@ gofmt -l .
 All five exit 0, `gofmt -l .` prints nothing, and the test run prints:
 
 ```text
-ok  	github.com/GhandyP/source-grounded-news-summary	1.749s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/alert	1.027s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/cli	1.073s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/feed	2.019s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/intelligence	1.024s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/news	1.011s
-ok  	github.com/GhandyP/source-grounded-news-summary/internal/summarizer	1.030s
+ok  	github.com/GhandyP/source-grounded-news-summary	2.173s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/alert	1.094s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/cli	1.246s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/feed	1.348s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/intelligence	1.034s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/news	1.017s
+ok  	github.com/GhandyP/source-grounded-news-summary/internal/summarizer	1.074s
 ```
 
 Exit codes were checked through the compiled binary rather than `go run`, which reports a child's
@@ -190,6 +192,8 @@ label.
 - No destination beyond a file you name, and no unapproved alert. It never sends mail, never posts,
   never calls a webhook. The fetch surface is GET-only and lives in one package; a test fails the suite
   if any other linked package imports an HTTP, SMTP, RPC or process-launching client.
+- No repeat delivery from this machine: the same digest is refused twice, both from the delivery ledger
+  and from the digest already written at the destination.
 - No article extraction: the feed's own body is used, with markup stripped. It does not fetch the linked
   page or defeat a paywall, so a snippet is summarized as the snippet it is.
 - Grounding is textual, not semantic. A quotation that genuinely appears in the article is accepted
@@ -203,6 +207,10 @@ label.
   instead of a summary of half an article.
 - The alert digest binds to the exact JSON of a summary: reformatting or re-running may produce a new
   digest, and that is the point, because the approval has to be about the content being written.
+- Repeat detection is **local evidence**: the ledger beside the alert plus the digest already present at
+  the destination. Copying a delivered alert to another path, or running on another machine, starts a
+  fresh gate, because nothing on this machine can know about that other one. Deleting the destination as
+  well as the ledger reopens it, which is why the two are checked together rather than either alone.
 
 ## Provenance
 

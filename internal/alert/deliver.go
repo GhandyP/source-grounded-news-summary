@@ -47,6 +47,13 @@ func Write(path string, candidate Candidate, approval string) error {
 		return ErrEmptyPath
 	}
 
+	// The gate has to hold at the write boundary too, not only in New: a caller
+	// that builds a Candidate by hand must not be able to deliver an unvalidated
+	// summary that carries nothing to trace.
+	if len(candidate.Summary.Citations) == 0 {
+		return fmt.Errorf("%w: a summary with no citations has nothing to trace", ErrUncheckedSummary)
+	}
+
 	expected, err := digestOf(candidate.Summary)
 	if err != nil {
 		return err
@@ -68,10 +75,40 @@ func Write(path string, candidate Candidate, approval string) error {
 		return fmt.Errorf("%w: %s holds it already", ErrAlreadyDelivered, path)
 	}
 
+	// The ledger is not the only evidence that this alert was delivered: the
+	// destination file is evidence as well. Deleting the ledger must not reopen
+	// the gate, or the same alert could leave the machine twice.
+	existing, err := digestAt(path)
+	if err != nil {
+		return err
+	}
+	if existing != "" && existing == candidate.Digest {
+		return fmt.Errorf("%w: %s holds it already", ErrAlreadyDelivered, path)
+	}
+
 	if err := writeAtomically(path, candidate); err != nil {
 		return err
 	}
 	return appendLedger(ledger, candidate.Digest)
+}
+
+// digestAt reports the digest of the alert already sitting at path, or an empty
+// string when there is nothing readable there.
+func digestAt(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read the delivered alert %s: %w", path, err)
+	}
+
+	var delivered Candidate
+	if err := json.Unmarshal(content, &delivered); err != nil {
+		// Something else lives at this path; it is not evidence of a delivery.
+		return "", nil
+	}
+	return delivered.Digest, nil
 }
 
 // digestOf binds an approval to the exact bytes of a summary.

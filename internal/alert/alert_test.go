@@ -192,6 +192,43 @@ func TestWriteRefusesToDeliverTheSameDigestTwice(t *testing.T) {
 	}
 }
 
+// Regression tests handed over by the independent verifier, which falsified both
+// claims on the published commit 153f677. They are kept verbatim so the evidence
+// and the fix stay tied to each other.
+func TestWriteRefusesRepeatAfterLedgerRemoval(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "alert.json")
+	c, err := New(checkedSummary())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = Write(path, c, c.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(path + ledgerSuffix); err != nil {
+		t.Fatal(err)
+	}
+	if err = Write(path, c, c.Digest); !errors.Is(err, ErrAlreadyDelivered) {
+		t.Fatalf("Write after ledger removal = %v, want ErrAlreadyDelivered", err)
+	}
+}
+
+func TestWriteRefusesCandidateWithoutCitations(t *testing.T) {
+	s := checkedSummary()
+	s.Citations = nil
+	d, err := digestOf(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "uncited.json")
+	err = Write(path, Candidate{Summary: s, Digest: d}, d)
+	if !errors.Is(err, ErrUncheckedSummary) {
+		t.Fatalf("Write = %v, want ErrUncheckedSummary", err)
+	}
+	if _, err = os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("uncited alert exists: %v", err)
+	}
+}
+
 func TestWriteDeliversADifferentSummaryToTheSamePath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "alert.json")
 
